@@ -175,17 +175,16 @@ estimate_ipcw_rmst_one_partition <- function(
 }
 
 # Sanity checks
-source("SimData.R")
-source("IPCW_RMST.R")
-pi_always_treat <- function(df) rep(1L, nrow(df))
-
-fit_ipcw <- estimate_ipcw_rmst_one_partition(
-  long_dat = long_dat,
-  policy_fun = pi_always_treat,
-  history_vars = c("Z0", "Zk", "Ak_1", "Bk"),
-  tau = 730
-)
-
-fit_ipcw$value
-fit_ipcw$ess
-fit_ipcw$match_rate
+# source("SimData.R")
+# pi_always_treat <- function(df) rep(1L, nrow(df))
+# 
+# fit_ipcw <- estimate_ipcw_rmst_one_partition(
+#   long_dat = long_dat,
+#   policy_fun = pi_always_treat,
+#   history_vars = c("Z0", "Zk", "Ak_1", "Bk"),
+#   tau = 730
+# )
+# 
+# fit_ipcw$value
+# fit_ipcw$ess
+# fit_ipcw$match_rate
