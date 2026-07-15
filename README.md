@@ -1,3 +1,4 @@
+R Scripts and Objectives
 1. SimData.R: Generates multistage survival data with censoring and partition labels. 
 2. WithinPartitionAlg_RMST.R: Implements the single-partition SVELTE / recursive forest RMST estimator. 
 3. IPCW_RMST.R: Implements a one-partition IPCW RMST policy evaluator.
