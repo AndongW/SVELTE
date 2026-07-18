@@ -1,6 +1,6 @@
 # Comparison workflow utilities for SVELTE RMST recursion versus IPCW RMST.
 
-source("WithinPartitionAlg_RMST.R")
+source("WithinPartitionAlg_RMST_1StubExt.R")
 source("IPCW_RMST.R")
 
 library(dplyr)
@@ -197,7 +197,7 @@ estimate_svelte_rmst_value <- function(
     num.trees.rmst = 150,
     min.node.size = 10
 ) {
-  fit <- fit_algorithm1_rmst_one_partition(
+  fit <- fit_algorithm1_rmst_one_partition_1stubext(
     long_dat = long_dat,
     policy_fun = policy_fun,
     history_vars = history_vars,

@@ -1,6 +1,6 @@
 # Example run for the RMST-first single-partition Algorithm 1 implementation.
 
-source("WithinPartitionAlg_RMST.R")
+source("WithinPartitionAlg_RMST_1StubExt.R")
 source("SimData.R")
 
 sim <- simu(n = 200, K = 5, tau = 730, seed = 1)
@@ -15,7 +15,7 @@ pi_always_treat <- function(df) {
 
 
 # Fit the single-partition RMST-first recursive forest.
-alg1_rmst_fit <- fit_algorithm1_rmst_one_partition(
+alg1_rmst_fit <- fit_algorithm1_rmst_one_partition_1stubext(
   long_dat = long_dat,
   policy_fun = pi_always_treat,
   history_vars = c("Z0", "Zk", "Ak_1", "Bk"),
