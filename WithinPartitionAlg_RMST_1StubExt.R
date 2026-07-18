@@ -58,7 +58,7 @@ rmst_from_curve_1stubext <- function(grid, surv_vec, tau = max(grid, na.rm = TRU
     return(0)
   }
 
-  sum(diff(grid_sub) * head(surv_sub, -1))
+  sum(diff(grid_sub) * (head(surv_sub, -1) + tail(surv_sub, -1)) / 2)
 }
 
 # Propensity and matching weights----
@@ -79,10 +79,25 @@ add_matching_weights_1stubext <- function(dat, policy_fun, history_vars) {
   dat
 }
 
+# Observed-failure indicator for the within-stage survival model.
+#
+# delta_k = 1 means the stage ended for a non-censoring reason, which lumps
+# together failure (gamma_k = 1) and advancement to the next visit
+# (gamma_k = 0). Only the former is the event of interest: the stub curve must
+# estimate P(T_k > t | H_k), so advancement has to enter as right-censoring at
+# Xk = Uk rather than as an event. Using delta_k directly would instead estimate
+# P(min(T_k, U_k) > t | H_k), i.e. the stage-duration survival, whose hazard is
+# inflated by lambda_U and which the splice in
+# construct_augmented_curve_one_1stubext() then compounds across stubs.
+add_failure_indicator_1stubext <- function(dat) {
+  dat$fail_k <- as.integer(dat$delta_k == 1L & dat$gamma_k == 1L)
+  dat
+}
+
 # Stage-1 forest ----
 
 fit_survival_forest_1stub_1stubext <- function(dat, history_vars, num.trees = 500, min.node.size = 10) {
-  f <- as.formula(paste0("Surv(Xk, delta_k) ~ ", paste(history_vars, collapse = " + ")))
+  f <- as.formula(paste0("Surv(Xk, fail_k) ~ ", paste(history_vars, collapse = " + ")))
   ranger(
     formula = f,
     data = dat,
@@ -270,6 +285,7 @@ fit_algorithm1_rmst_one_partition_1stubext <- function(
 
   dat <- long_dat %>% arrange(id, k)
   dat <- add_matching_weights_1stubext(dat, policy_fun, history_vars)
+  dat <- add_failure_indicator_1stubext(dat)
   grid <- make_time_grid_1stubext(dat, tau = tau, n_grid = n_grid)
   tau_use <- max(grid, na.rm = TRUE)
 
