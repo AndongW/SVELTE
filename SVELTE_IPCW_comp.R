@@ -220,20 +220,75 @@ estimate_svelte_rmst_value <- function(
   )
 }
 
+# DEPRECATED: biased downward by the K-visit cap.
+# Setting censoring = FALSE removes Ck, but study_limit_censor still fires for any
+# subject who would advance past visit K. Those subjects are alive and un-failed,
+# yet contribute their last visit end time (B_K + X_K) instead of tau. With
+# U0 = 240 and tau = 730, three visits average ~720 days, so a large share of
+# subjects hit the cap before tau and the returned value is expected follow-up
+# under a K-visit administrative cap, not RMST.
+#
+# estimate_true_policy_rmst <- function(
+#     policy_fun,
+#     n_truth = 10000,
+#     K = 3,
+#     tau = 730,
+#     boundaries = c(365),
+#     seed = 999,
+#     T0 = 2000,
+#     U0 = 240
+# ) {
+#   sim_truth <- simulate_fixed_policy_data(
+#     n = n_truth,
+#     K = K,
+#     tau = tau,
+#     boundaries = boundaries,
+#     seed = seed,
+#     T0 = T0,
+#     U0 = U0,
+#     C0 = Inf,
+#     policy_fun = policy_fun,
+#     censoring = FALSE
+#   )
+#
+#   list(
+#     value = mean(pmin(sim_truth$subject$time, tau)),
+#     sim = sim_truth
+#   )
+# }
+
 # Computes the uncensored truth for a fixed policy by large-sample policy simulation.
+#
+# The visit cap is raised to K_truth so trajectories run until the subject either
+# fails or reaches tau administratively. Under that regime the subject-level
+# `time` column already equals min(T_total, tau): a failing subject ends with
+# Xk = Tk, so time = Bk + Tk, and a surviving subject ends with Xk = rem_admin,
+# so time = tau. The estimator is therefore mean(time), and it is valid only if
+# no subject hits the cap -- which is checked and warned about below.
+#
+# K is accepted but ignored so legacy truth_args = list(K = 3, ...) calls do not
+# error; use K_truth to control the cap.
 estimate_true_policy_rmst <- function(
     policy_fun,
     n_truth = 10000,
-    K = 3,
+    K_truth = 50,
     tau = 730,
     boundaries = c(365),
     seed = 999,
     T0 = 2000,
-    U0 = 240
+    U0 = 240,
+    K = NULL
 ) {
+  if (!is.null(K)) {
+    warning(
+      "estimate_true_policy_rmst(): argument 'K' is ignored; the truth simulation ",
+      "uses K_truth = ", K_truth, " so trajectories are not truncated by the visit cap."
+    )
+  }
+
   sim_truth <- simulate_fixed_policy_data(
     n = n_truth,
-    K = K,
+    K = K_truth,
     tau = tau,
     boundaries = boundaries,
     seed = seed,
@@ -244,13 +299,28 @@ estimate_true_policy_rmst <- function(
     censoring = FALSE
   )
 
+  n_capped <- sum(sim_truth$long$study_limit_censor == 1L)
+  if (n_capped > 0L) {
+    warning(
+      n_capped, " of ", nrow(sim_truth$subject), " truth subjects were truncated by ",
+      "the visit cap (K_truth = ", K_truth, "); the returned value is biased downward. ",
+      "Increase K_truth."
+    )
+  }
+
   list(
     value = mean(pmin(sim_truth$subject$time, tau)),
+    n_capped = n_capped,
+    K_truth = K_truth,
     sim = sim_truth
   )
 }
 
 # Runs one replicate of the SVELTE-versus-IPCW RMST comparison for a fixed policy.
+#
+# The estimand does not depend on the observed-data replicate, so `truth` accepts
+# an already-computed estimate_true_policy_rmst() object and skips resimulating
+# it. When `truth` is supplied it takes precedence over `truth_args`.
 run_svelte_ipcw_comparison_once <- function(
     long_dat,
     policy_fun,
@@ -258,7 +328,8 @@ run_svelte_ipcw_comparison_once <- function(
     history_vars = NULL,
     truth_args = NULL,
     svelte_args = list(),
-    ipcw_args = list()
+    ipcw_args = list(),
+    truth = NULL
 ) {
   if (is.null(history_vars)) {
     history_vars <- infer_history_vars_svelte(long_dat)
@@ -280,8 +351,7 @@ run_svelte_ipcw_comparison_once <- function(
   )
   ipcw_fit <- do.call(estimate_ipcw_rmst_one_partition, modifyList(ipcw_defaults, ipcw_args))
 
-  truth <- NULL
-  if (!is.null(truth_args)) {
+  if (is.null(truth) && !is.null(truth_args)) {
     truth_defaults <- list(policy_fun = policy_fun, tau = tau)
     truth <- do.call(estimate_true_policy_rmst, modifyList(truth_defaults, truth_args))
   }
@@ -316,6 +386,16 @@ run_svelte_ipcw_comparison_replicates <- function(
 ) {
   ensure_simu_available_svelte()
 
+  # The estimand is a property of the policy and the data-generating mechanism,
+  # not of any observed-data replicate, so compute it once here rather than
+  # resimulating an identical truth population inside every iteration.
+  truth <- NULL
+  if (!is.null(truth_args)) {
+    tau_truth <- if (!is.null(sim_args$tau)) sim_args$tau else eval(formals(simu)$tau)
+    truth_defaults <- list(policy_fun = policy_fun, tau = tau_truth)
+    truth <- do.call(estimate_true_policy_rmst, modifyList(truth_defaults, truth_args))
+  }
+
   results <- vector("list", n_reps)
 
   for (r in seq_len(n_reps)) {
@@ -325,14 +405,14 @@ run_svelte_ipcw_comparison_replicates <- function(
       policy_fun = policy_fun,
       tau = sim_r$tau,
       history_vars = history_vars,
-      truth_args = truth_args,
       svelte_args = svelte_args,
-      ipcw_args = ipcw_args
+      ipcw_args = ipcw_args,
+      truth = truth
     )
   }
 
   summaries <- bind_rows(lapply(results, function(x) x$summary), .id = "rep")
-  list(results = results, summary = summaries)
+  list(results = results, summary = summaries, truth = truth)
 }
 
 
@@ -358,7 +438,7 @@ sim_comp_example <- simu(
 #   history_vars = c("Z0", "Zk", "Ak_1", "Bk"),
 #   truth_args = list(
 #     n_truth = 2000,
-#     K = 3,
+#     K_truth = 50,
 #     tau = 730,
 #     boundaries = c(365),
 #     seed = 4040
@@ -383,14 +463,14 @@ res <- run_svelte_ipcw_comparison_replicates(
   policy_fun = pi_always_treat,
   sim_args = list(
     n = 200,
-    K = 3,
+    K = 8,
     tau = 730,
     boundaries = c(365)
   ),
   history_vars = c("Z0", "Zk", "Ak_1", "Bk"),
   truth_args = list(
     n_truth = 2000,
-    K = 3,
+    K_truth = 50,
     tau = 730,
     boundaries = c(365),
     seed = 4040
@@ -400,11 +480,11 @@ res <- run_svelte_ipcw_comparison_replicates(
     num.trees.1stub = 80,
     num.trees.curve = 40,
     num.trees.rmst = 40,
-    min.node.size = 5
+    min.node.size = 10
   ),
   ipcw_args = list(
     num.trees.censor = 80,
-    min.node.size = 5
+    min.node.size = 10
   ),
   seed_offset = 5000
 )
